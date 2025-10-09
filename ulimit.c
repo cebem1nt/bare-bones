@@ -30,7 +30,7 @@ main()
     if (open_file > 0)
         printf("Open files: \t %li\n", open_file);
     else if (open_file == -1 && errno == 0) 
-        printf("Open files: \t unlimited\n");
+        printf("Open filesss: \t unlimited\n");
     else
         err_exit();
 

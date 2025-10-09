@@ -6,12 +6,10 @@
 #define BUFFER_SIZE 256
 
 void 
-clean_exit(int fd1, int fd2) {
+clean_exit() {
+    // Linux kernel actually closes any file 
+    // descriptor when process ends
     perror("cp");
-    
-    close(fd1);
-    close(fd2);
-
     exit(EXIT_FAILURE);
 }
 
@@ -27,23 +25,18 @@ main(int argc, char** argv)
     char buf[BUFFER_SIZE];
     int  n;
 
-    if ( (input_fd = open(argv[1], O_RDONLY)) == -1 ) {
-        perror("cp");
-        return 1;
-    }
+    if ( (input_fd = open(argv[1], O_RDONLY)) == -1 )
+        clean_exit();
 
-    if ( (output_fd = open(argv[2], O_WRONLY | O_CREAT, 0644)) == -1 ) {
-        perror("cp");
-        close(input_fd);
-        return 1;
-    }
+    if ( (output_fd = open(argv[2], O_WRONLY | O_CREAT, 0644)) == -1 )
+        clean_exit();
 
     while ( (n = read(input_fd, buf, BUFFER_SIZE)) ) {
         if (n == -1)
-            clean_exit(input_fd, output_fd);
+            clean_exit();
         
         if (write(output_fd, buf, n) == -1)
-            clean_exit(input_fd, output_fd);
+            clean_exit();
     }
 
     return 0;
