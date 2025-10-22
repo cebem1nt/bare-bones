@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <pwd.h>
 #include <grp.h>
+#include <time.h>
 
 #define MODE_STR_SIZE 11 // 10 + 1 for '\0'
 
@@ -99,13 +100,17 @@ print_stat(char* file)
     const char* uname = gid_to_name(s.st_uid);
     const char* gname = gid_to_name(s.st_gid);
 
-    printf("File: %s \t %s\n", file, filetype);
-    printf("Size: %ld \t Blocks: %ld \t IO Block: %ld\n", s.st_size, s.st_blocks, s.st_blksize);
-    printf("Device: [%u,%u] \t Inode: %lu \t Links: %lu\n", 
-            major(s.st_dev), minor(s.st_dev), s.st_ino, s.st_nlink);
+    printf("  File: %s\t %s\n", file, filetype);
+    printf("  Size: %ld\t Blocks: %ld\t IO Block: %ld\n", s.st_size, s.st_blocks, s.st_blksize);
+    printf("Device: [%u,%u]\t Links: %lu\t Inode: %lu\n", 
+            major(s.st_dev), minor(s.st_dev), s.st_nlink, s.st_ino);
 
-    printf("Mode: (%u/%s) \t Uid: %u/%s \t Gid: %u/%s\n", 
+    printf("  Mode: (%u/%s)\t Uid: %u/%s\t Gid: %u/%s\n", 
             s.st_mode, mode, s.st_uid, uname, s.st_gid, gname);
+
+    printf("Access: %s", ctime(&s.st_atim.tv_sec));
+    printf("Modify: %s", ctime(&s.st_mtim.tv_sec));
+    printf(" Birth: %s", ctime(&s.st_ctim.tv_sec));
 
     free(mode);
 }
