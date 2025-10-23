@@ -21,6 +21,7 @@
 
 #define MODE_STR_SIZE 11 // 10 + 1 for '\0'
 
+static long double size_bytes;
 static long n_blk, n_char, n_dir, n_pipe, n_slink, n_reg, n_sock, 
        n_nread, n_unknown;
 
@@ -154,12 +155,13 @@ traverse(char* path)
 {
     struct stat stbuf;
     struct dirent* dirp;
-    char* end;
-    DIR* dp;
+    char*  end;
+    DIR*   dp;
 
     if (lstat(path, &stbuf) == -1)
         return n_unknown++;
 
+    size_bytes += stbuf.st_size;
     if (S_ISDIR(stbuf.st_mode) == 0)
         return classify(&stbuf);
     
@@ -221,7 +223,15 @@ main(int argc, char** argv)
     if (n_nread > 0)
         printf("  Couldn't read: %lu\n", n_nread);
     if (n_unknown > 0) 
-        printf("Unknown files?: %lu\n", n_unknown);
+        printf(" Unknown files?: %lu\n", n_unknown);
 
+    int   times_divided = 0;
+    char* mem[] = {"Bytes", "KiB", "MiB", "GiB"};
+
+    for (;size_bytes > 1024; ++times_divided) {
+        size_bytes /= 1024;
+    }
+
+    printf("        Total size: %.2Lf %s\n", size_bytes, mem[times_divided]);
     return 0;
 }
