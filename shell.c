@@ -21,7 +21,7 @@ main()
 
     printf(PROMPT);
     while (fgets(buf, MAXINPUT, stdin) != NULL) {
-       if (buf[strlen(buf) - 1] == '\n')
+        if (buf[strlen(buf) - 1] == '\n')
             buf[strlen(buf) - 1] = 0; // Won't it allways end with '\n' ?
 
         if ( (pid = fork()) < 0) {
