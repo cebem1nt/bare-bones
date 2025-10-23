@@ -17,7 +17,7 @@ int
 main(int argc, char** argv) 
 {
     if (argc < 3 || argc > 3) {
-        fprintf(stderr, "Usage: cp <src> <dest>");
+        fprintf(stderr, "Usage: cp <src> <dest>\n");
         return 1;
     }
 
