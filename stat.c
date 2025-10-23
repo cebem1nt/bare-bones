@@ -1,3 +1,4 @@
+#include <linux/limits.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <fcntl.h>
@@ -6,6 +7,7 @@
 #include <pwd.h>
 #include <grp.h>
 #include <time.h>
+#include <unistd.h>
 
 #define MODE_STR_SIZE 11 // 10 + 1 for '\0'
 
@@ -101,6 +103,15 @@ print_stat(char* file)
     const char* gname = gid_to_name(s.st_gid);
 
     printf("  File: %s\t %s\n", file, filetype);
+    if (S_ISLNK(s.st_mode)) {
+        char buf[PATH_MAX];
+
+        size_t n = readlink(file, buf, PATH_MAX);
+        buf[n+1] = '\0';  
+
+        printf(" -> %s", buf);
+    }
+
     printf("  Size: %ld\t Blocks: %ld\t IO Block: %ld\n", s.st_size, s.st_blocks, s.st_blksize);
     printf("Device: [%u,%u]\t Links: %lu\t Inode: %lu\n", 
             major(s.st_dev), minor(s.st_dev), s.st_nlink, s.st_ino);
