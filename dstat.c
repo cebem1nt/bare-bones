@@ -232,6 +232,6 @@ main(int argc, char** argv)
         size_bytes /= 1024;
     }
 
-    printf("        Total size: %.2Lf %s\n", size_bytes, mem[times_divided]);
+    printf("     Total size: %.2Lf %s\n", size_bytes, mem[times_divided]);
     return 0;
 }

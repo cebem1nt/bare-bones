@@ -6,10 +6,14 @@
 #include <stdlib.h>
 #include <termios.h>
 #include <fcntl.h>
+#include <string.h>
 #include <unistd.h>
 
 #define MAX_KEY_SIZE 256
 #define CHUNK_SIZE 4096
+
+#define O_FLAGS (O_WRONLY | O_CREAT | O_TRUNC)
+#define O_MODE 0644
 
 void
 err_exit(char* reason)
@@ -47,6 +51,7 @@ main(int argc, char** argv)
 
     char   key[MAX_KEY_SIZE];
     char   buf[CHUNK_SIZE];
+    char*  out = "out.x";
 
     int in_fd, out_fd;
     int n;
@@ -57,7 +62,7 @@ main(int argc, char** argv)
     if ((in_fd = open(argv[1], O_RDONLY)) == -1)
         err_exit("open input");
 
-    if ((out_fd = open(argv[2], O_WRONLY | O_CREAT, 0644)) == -1)
+    if ((out_fd = open(argc >= 3 ? argv[2] : out, O_FLAGS, O_MODE)) == -1)
         err_exit("open output");
 
     while ((n = read(in_fd, buf, CHUNK_SIZE)) != 0) {
