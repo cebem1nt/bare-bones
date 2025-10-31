@@ -52,6 +52,7 @@ main(int argc, char** argv)
     int n;
 
     get_key(key);
+	size_t len = strlen(key);
 
     if ((in_fd = open(argv[1], O_RDONLY)) == -1)
         err_exit("open input");
@@ -64,7 +65,7 @@ main(int argc, char** argv)
             err_exit("read");
             
         for (int i = 0; i < n; i++) {
-            buf[i] ^= key[i % n];
+            buf[i] ^= key[i % len];
         }
 
         write(out_fd, buf, n);
