@@ -17,22 +17,40 @@ void err_exit()
 int
 main()
 {
-    long int open_file;
+    long int open_file,
+             atexit_max,
+             args_max,
+             stream_max,
+             page_size,
+             symloop_max;
     errno = 0;
 
-#ifdef OPEN_MAX
-    open_file = sysconf(OPEN_MAX);
-#else
-    // Lets assume that _SC_OPEN_MAX is set otherwise
     open_file = sysconf(_SC_OPEN_MAX);
-#endif
+    atexit_max = sysconf(_SC_ATEXIT_MAX);
+    args_max = sysconf(_SC_ARG_MAX);
+    stream_max = sysconf(_SC_STREAM_MAX);
+    symloop_max = sysconf(_SC_SYMLOOP_MAX);
+
+    page_size = sysconf(_SC_PAGESIZE);
 
     if (open_file > 0)
-        printf("Open files: \t %li\n", open_file);
+        printf("Open files: %li\n", open_file);
     else if (open_file == -1 && errno == 0) 
-        printf("Open filesss: \t unlimited\n");
+        printf("Open files: unlimited\n");
     else
         err_exit();
+
+    printf("Open streams: %li\n", stream_max);
+    printf("Atexit handlers: %li\n", atexit_max);
+    printf("Arguments: %li\n", args_max);
+
+    if (symloop_max == -1 && errno == 0)
+        printf("Links seen before ELOOP: indeterminate\n");
+    else
+        printf("Links seen before ELOOP: %li\n", symloop_max);
+
+    putchar('\n');
+    printf("Page size: %li\n", page_size);
 
     return 0;
 }
