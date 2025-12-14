@@ -49,7 +49,8 @@ uid_to_name(uid_t uid)
     return p->pw_name;
 }
 
-void format_time(time_t t, char* buf, size_t len) 
+void 
+format_time(time_t t, char* buf, size_t len) 
 {
     struct tm tm;
 
