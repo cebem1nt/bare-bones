@@ -95,6 +95,10 @@ print_colors(struct args* a)
 
         putchar('\n');
     }
+
+    printf("\n Reset: ");
+    print_escaped(RESET, a->is_shell);
+    putchar('\n');
 }
 
 int
