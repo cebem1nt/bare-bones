@@ -23,7 +23,7 @@ get_random_line(long total_lines)
 {
     size_t random; 
     getrandom(&random, sizeof(random), 0);
-    return random % (total_lines + 1);
+    return random % (total_lines);
 }
 
 int 
@@ -31,7 +31,7 @@ main(int argc, char** argv)
 {
 
     if (argc != 2) {
-        printf("usage: %s <file>", argv[0]);
+        printf("usage: %s <file>\n", argv[0]);
         return 1;
     }
 
@@ -52,19 +52,19 @@ main(int argc, char** argv)
     }
 
     long picked = get_random_line(lines);
-    long current_line = 1;
+    long current_line = 0;
 
     lseek(fd, 0, SEEK_SET);
 
     while (read(fd, buf, 1) > 0) {
-        if (current_line > picked)
-            break;
-
         if (current_line == picked)
             write(STDOUT_FILENO, buf, 1);
 
         if (*buf == '\n')
             current_line++;
+
+        if (current_line > picked)
+            break;
     }
 
     return 0;
