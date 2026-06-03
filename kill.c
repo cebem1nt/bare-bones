@@ -7,12 +7,12 @@
 #define STR_ISEQ(a, b) (strcmp(a, b) == 0)
 #define STARTS_WITH(str, prefix, len) (strncasecmp(str, prefix, len) == 0)
 
-typedef struct {
+struct signame {
     const char *name;
     int val;
-} signal_map_t;
+};
 
-static signal_map_t sig_map[] = {
+static struct signame sig_map[] = {
     {"SIGHUP",  SIGHUP},  {"SIGINT",    SIGINT},    {"SIGQUIT",   SIGQUIT},
     {"SIGILL",  SIGILL},  {"SIGTRAP",   SIGTRAP},   {"SIGIOT",    SIGIOT},
     {"SIGABRT", SIGABRT}, {"SIGBUS",    SIGBUS},    {"SIGFPE",    SIGFPE},
@@ -55,7 +55,7 @@ int main(int argc, char** argv)
         sigtype[len + 3] = '\0';
     } 
     
-    for (signal_map_t* m = sig_map; m->name; m++) {
+    for (struct signame* m = sig_map; m->name; m++) {
         if (STR_ISEQ(m->name, sigtype)) {
             sig = m->val;
             break;
