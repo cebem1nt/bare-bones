@@ -68,6 +68,12 @@ typedef struct {
     "Usage: %s [PACKAGE ...]\n" \
     "   -r, --remove    Remove cached instead of printing\n"
 
+void help_exit(const char* program) 
+{
+    printf(HELP, program);
+    exit(EXIT_FAILURE);
+}
+
 int endswith(const char* str, const char* sub, size_t substr_len) 
 {
     size_t str_len = strlen(str);
@@ -77,7 +83,6 @@ int endswith(const char* str, const char* sub, size_t substr_len)
 
     return strncmp(str + (str_len - substr_len), sub, substr_len) == 0;
 }
-
 
 bool is_matching_pkg(char* pkg, const char* query, size_t query_len) 
 {
@@ -149,13 +154,35 @@ void remove_cached(const char* query)
     }
 }
 
+void remove_all() 
+{
+    DIR*             dp;
+    struct dirent*   dir;
+    size_t     query_len;
+    
+    if ((dp = opendir(CACHE_DIR)) == NULL)
+        perror_exit();
+
+    chdir(CACHE_DIR);
+    
+    while ((dir = readdir(dp)) != NULL) {
+        char* pkg = dir->d_name;
+
+        if (dir->d_type != DT_REG)
+            continue;
+
+        if (!endswith(pkg, ".tar.zst", 8) || !endswith(pkg, ".zst.sig", 8))
+            continue;
+
+
+        remove(pkg);
+    }
+}
 
 int main(int argc, char** argv)
 {
-    if (argc == 1) {
-        printf(HELP, argv[0]);
-        return 1;
-    }
+    if (argc == 1)
+        help_exit(argv[0]);
 
     packages_t  pkgs;
     args_t      args;
@@ -172,15 +199,21 @@ int main(int argc, char** argv)
 
             if (arg[0] == 'r' || strcmp(arg, "-remove") == 0)
                 args.do_remove = true;
+            else
+                help_exit(argv[0]);
         }
     }
 
-    for (size_t i = 0; i < pkgs.len; i++) {
-        if (args.do_remove) 
-            remove_cached(pkgs.arr[i]);
-        else
-            find_cached(pkgs.arr[i]);
-    }   
+    if (pkgs.len > 0) {
+        for (size_t i = 0; i < pkgs.len; i++) {
+            if (args.do_remove) 
+                remove_cached(pkgs.arr[i]);
+            else
+                find_cached(pkgs.arr[i]);
+        }   
+    } else if (args.do_remove) {
+        remove_all();
+    }
 
     return 0;
 }
