@@ -26,7 +26,8 @@ typedef struct {
 } packages_t;
 
 typedef struct {
-    bool do_remove;
+    size_t keep;
+    bool   do_remove;
 } args_t;
 
 #define perror_exit()           \
@@ -129,12 +130,16 @@ void find_cached(const char* query)
     }
 }
 
-void remove_cached(const char* query) 
+void remove_cached(const char* query, size_t keep) 
 {
     DIR*             dp;
     struct dirent*   dir;
-    size_t     query_len;
-    
+    size_t           query_len;
+    packages_t       packages, signatures;
+
+    DA_INIT(&packages);
+    DA_INIT(&signatures);
+
     if ((query_len = strlen(query)) > 256)
         error_exit("Given package name is too long.\n");
 
@@ -149,12 +154,39 @@ void remove_cached(const char* query)
         if (!is_matching_pkg(pkg, query, query_len))
             continue;
 
-        if (remove(pkg) == -1)
-            perror_exit();
+        if (is_signature(pkg))
+            DA_APPEND(&signatures, strdup(pkg));
+        else
+            DA_APPEND(&packages, strdup(pkg));
     }
+
+    if (packages.len <= 3) 
+        return;  
+
+    size_t to_delete = packages.len - keep; 
+
+    // packages array WILL have packages pre sorted.
+    for (size_t i = 0; i < packages.len; i++) {
+        char* pkg = packages.arr[i];
+        char* sig = signatures.arr[i];
+
+        size_t deleted = i + 1;
+        
+        if (deleted > to_delete) 
+            return;
+
+        if (remove(pkg) == -1) perror_exit();
+        if (remove(sig) == -1) perror_exit();
+
+        free(pkg);
+        free(sig);
+    }
+
+    free(packages.arr);
+    free(signatures.arr);
 }
 
-void remove_all() 
+void remove_cached_all(unsigned int keep) 
 {
     DIR*             dp;
     struct dirent*   dir;
@@ -173,9 +205,6 @@ void remove_all()
 
         if (!endswith(pkg, ".tar.zst", 8) || !endswith(pkg, ".zst.sig", 8))
             continue;
-
-
-        remove(pkg);
     }
 }
 
@@ -185,7 +214,7 @@ int main(int argc, char** argv)
         help_exit(argv[0]);
 
     packages_t  pkgs;
-    args_t      args;
+    args_t      args = {3, false};
 
     DA_INIT(&pkgs);
 
@@ -207,12 +236,12 @@ int main(int argc, char** argv)
     if (pkgs.len > 0) {
         for (size_t i = 0; i < pkgs.len; i++) {
             if (args.do_remove) 
-                remove_cached(pkgs.arr[i]);
+                remove_cached(pkgs.arr[i], args.keep);
             else
                 find_cached(pkgs.arr[i]);
         }   
     } else if (args.do_remove) {
-        remove_all();
+        remove_cached_all(3);
     }
 
     return 0;
