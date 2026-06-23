@@ -30,17 +30,11 @@ typedef struct {
     bool   do_remove;
 } args_t;
 
-#define perror_exit()           \
-    do {                        \
-        perror("paccache");     \
-        exit(EXIT_FAILURE);     \
-    } while (0);
-
-#define error_exit(...)                   \
-    do {                                  \
-        fprintf(stderr, __VA_ARGS__);     \
-        exit(EXIT_FAILURE);               \
-    } while (0);
+#define CACHE_DIR "/var/cache/pacman/pkg"
+#define NKEEP_DEFAULT 3 
+#define HELP \
+    "Usage: %s [PACKAGE ...]\n" \
+    "   -r, --remove    Remove cached instead of printing\n"
 
 #define DA_DEFAULT_CAP 10
 
@@ -61,13 +55,13 @@ typedef struct {
         assert((da)->arr && "Could not realloc array, no memory");      \
     }                                                                   \
     (da)->arr[(da)->len++] = __VA_ARGS__;                               \
-} while(0) 
+} while(0)
 
-#define CACHE_DIR "/var/cache/pacman/pkg"
-
-#define HELP \
-    "Usage: %s [PACKAGE ...]\n" \
-    "   -r, --remove    Remove cached instead of printing\n"
+#define error_exit(...)                   \
+    do {                                  \
+        fprintf(stderr, __VA_ARGS__);     \
+        exit(EXIT_FAILURE);               \
+    } while (0)
 
 void help_exit(const char* program) 
 {
@@ -75,7 +69,18 @@ void help_exit(const char* program)
     exit(EXIT_FAILURE);
 }
 
-int endswith(const char* str, const char* sub, size_t substr_len) 
+void perror_exit() 
+{
+    perror("paccache");
+    exit(EXIT_FAILURE);
+}
+
+bool startswith(const char* str, const char* sub, size_t substr_len) 
+{
+    return strncmp(str, sub, substr_len) == 0;
+}
+
+bool endswith(const char* str, const char* sub, size_t substr_len) 
 {
     size_t str_len = strlen(str);
     
@@ -85,9 +90,21 @@ int endswith(const char* str, const char* sub, size_t substr_len)
     return strncmp(str + (str_len - substr_len), sub, substr_len) == 0;
 }
 
+bool is_signature(char* pkg) {
+    if (endswith(pkg, ".sig", 4))
+        return true;
+    return false;
+}
+
+bool is_package(char* pkg) {
+    if (endswith(pkg, ".tar.zst", 8))
+        return true;
+    return false;
+}
+
 bool is_matching_pkg(char* pkg, const char* query, size_t query_len) 
 {
-    if (strncmp(pkg, query, query_len) != 0)
+    if (!startswith(pkg, query, query_len))
         return false;
 
     char* ptr = pkg;
@@ -104,10 +121,19 @@ bool is_matching_pkg(char* pkg, const char* query, size_t query_len)
     return true;
 }
 
-bool is_signature(char* pkg) {
-    if (endswith(pkg, ".sig", 4))
-        return true;
-    return false;
+size_t get_package_base(char* pkg) 
+{
+    size_t i = 0;
+    size_t len = strlen(pkg);
+
+    for (; i < len; i++) {
+        char c = pkg[i];
+
+        if (c == '-' && (i + 1) < len && isdigit(pkg[i + 1]))
+            break;
+    }
+
+    return i;
 }
 
 void find_cached(const char* query) 
@@ -130,17 +156,16 @@ void find_cached(const char* query)
     }
 }
 
-void remove_cached(const char* query, size_t keep) 
+void remove_cached(const char* query, size_t query_len, size_t keep) 
 {
     DIR*             dp;
     struct dirent*   dir;
-    size_t           query_len;
     packages_t       packages, signatures;
 
     DA_INIT(&packages);
     DA_INIT(&signatures);
 
-    if ((query_len = strlen(query)) > 256)
+    if (query_len > 256)
         error_exit("Given package name is too long.\n");
 
     if ((dp = opendir(CACHE_DIR)) == NULL)
@@ -151,6 +176,9 @@ void remove_cached(const char* query, size_t keep)
     while ((dir = readdir(dp)) != NULL) {
         char* pkg = dir->d_name;
 
+        if (dir->d_type != DT_REG)
+            continue;
+
         if (!is_matching_pkg(pkg, query, query_len))
             continue;
 
@@ -160,7 +188,9 @@ void remove_cached(const char* query, size_t keep)
             DA_APPEND(&packages, strdup(pkg));
     }
 
-    if (packages.len <= 3) 
+    closedir(dp);
+
+    if (packages.len <= keep) 
         return;  
 
     size_t to_delete = packages.len - keep; 
@@ -186,7 +216,7 @@ void remove_cached(const char* query, size_t keep)
     free(signatures.arr);
 }
 
-void remove_cached_all(unsigned int keep) 
+void remove_cached_all(size_t keep) 
 {
     DIR*             dp;
     struct dirent*   dir;
@@ -203,8 +233,11 @@ void remove_cached_all(unsigned int keep)
         if (dir->d_type != DT_REG)
             continue;
 
-        if (!endswith(pkg, ".tar.zst", 8) || !endswith(pkg, ".zst.sig", 8))
+        if (!is_package(pkg) && !is_signature(pkg))
             continue;
+
+        size_t pkg_base_len = get_package_base(pkg);
+        remove_cached(pkg, pkg_base_len, keep);
     }
 }
 
@@ -214,7 +247,7 @@ int main(int argc, char** argv)
         help_exit(argv[0]);
 
     packages_t  pkgs;
-    args_t      args = {3, false};
+    args_t      args = {NKEEP_DEFAULT, false};
 
     DA_INIT(&pkgs);
 
@@ -236,12 +269,12 @@ int main(int argc, char** argv)
     if (pkgs.len > 0) {
         for (size_t i = 0; i < pkgs.len; i++) {
             if (args.do_remove) 
-                remove_cached(pkgs.arr[i], args.keep);
+                remove_cached(pkgs.arr[i], strlen(pkgs.arr[i]), args.keep);
             else
                 find_cached(pkgs.arr[i]);
         }   
     } else if (args.do_remove) {
-        remove_cached_all(3);
+        remove_cached_all(args.keep);
     }
 
     return 0;
