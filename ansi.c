@@ -2,7 +2,9 @@
 #include <string.h>
 #include <stdio.h>
 
-#define TOTAL 7
+#define BOLD 1
+#define REGULAR 0
+#define NCOLORS 7
 #define RESET "\e[0m"
 
 #define IS(arg, exp) (strcmp(arg, exp) == 0)
@@ -35,7 +37,8 @@ struct args {
 };
 
 struct args 
-argparse(char** argv) {
+argparse(char** argv) 
+{
     struct args out;
 
     for (char** p = argv; *p != NULL; ++p) {
@@ -77,20 +80,19 @@ print_colors(struct args* a)
     char prefix = a->is_shell ? '\e'
                               : '\x1B';
 
-    for (int c = 0; c < TOTAL; c++) {
+    for (int color = 0; color < NCOLORS; color++) {
         char buf[10];
 
-        ANSII_FG(prefix, 0, c, buf);
+        ANSII_FG(prefix, REGULAR, color, buf);
         print_color(a->is_shell, buf);
 
-        ANSII_FG(prefix, 1, c, buf);
+        ANSII_FG(prefix, BOLD, color, buf);
         print_color(a->is_shell, buf);
 
-
-        ANSII_BG(prefix, 0, c, buf);
+        ANSII_BG(prefix, REGULAR, color, buf);
         print_color(a->is_shell, buf);
 
-        ANSII_BG(prefix, 1, c, buf);
+        ANSII_BG(prefix, BOLD, color, buf);
         print_color(a->is_shell, buf);
 
         putchar('\n');

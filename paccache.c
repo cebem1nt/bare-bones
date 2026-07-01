@@ -31,7 +31,7 @@ typedef struct {
 } args_t;
 
 #define CACHE_DIR "/var/cache/pacman/pkg"
-#define NKEEP_DEFAULT 3 
+#define NKEEP_DEFAULT 3
 #define HELP \
     "Usage: %s [PACKAGE ...]\n" \
     "   -r, --remove    Remove cached instead of printing\n"
@@ -142,7 +142,7 @@ void find_cached(const char* query)
     struct dirent*   dir;
     size_t     query_len;
     
-    if ((query_len = strlen(query)) > 256)
+    if ((query_len = strlen(query)) > MAXNAMLEN)
         error_exit("Given package name is too long.\n");
 
     if ((dp = opendir(CACHE_DIR)) == NULL)
@@ -165,7 +165,7 @@ void remove_cached(const char* query, size_t query_len, size_t keep)
     DA_INIT(&packages);
     DA_INIT(&signatures);
 
-    if (query_len > 256)
+    if (query_len > MAXNAMLEN)
         error_exit("Given package name is too long.\n");
 
     if ((dp = opendir(CACHE_DIR)) == NULL)
@@ -220,7 +220,6 @@ void remove_cached_all(size_t keep)
 {
     DIR*             dp;
     struct dirent*   dir;
-    size_t     query_len;
     
     if ((dp = opendir(CACHE_DIR)) == NULL)
         perror_exit();
