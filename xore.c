@@ -26,7 +26,9 @@ void
 get_key(char* dest) 
 {
     struct termios oflags, nflags;
+    
     tcgetattr(STDIN_FILENO, &oflags);
+
     nflags = oflags;
     nflags.c_lflag &= ~ECHO;
 
@@ -45,7 +47,7 @@ int
 main(int argc, char** argv) 
 {
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s: <input file> <output file>\n", argv[0]);
+        printf("Usage: %s: <input file> <output file>\n", argv[0]);
         return 1;
     }
 
