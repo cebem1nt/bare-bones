@@ -46,7 +46,7 @@ struct args {
 void 
 help(const char* program) 
 {
-    printf("\nUsage: %s [--shell|-s] [--bold|-b] [color]                        \n"
+    printf("\nUsage: %s [--shell|-s] [--bold|-b] [--background|-bg] [color]     \n"
            "       Get ansii color codes                                        \n"
            "                                                                    \n"
            "       --shell, -s:        Print shell escape codes                 \n"
