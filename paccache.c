@@ -9,6 +9,8 @@
  *
  * UPDATE:
  * This program will try to mimic some features of paccache
+ * 
+ * TODO Painfully slow clear all cache alghorithm for now
  */
 
 #include <ctype.h>
