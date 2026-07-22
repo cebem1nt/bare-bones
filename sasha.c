@@ -219,6 +219,7 @@ void next_candidate(candidate_t *c, int step)
 
         int digit = c->buf[i] - CANDIDATE_FIRST_CHAR;
         int sum = digit + carry;
+		
         c->buf[i] = CANDIDATE_FIRST_CHAR + (sum % base);
         carry = sum / base;
         i--;

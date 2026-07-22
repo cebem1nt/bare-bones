@@ -1,4 +1,4 @@
-#include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -32,27 +32,61 @@
         buf[7] = '\0';                    \
     } while (0)
 
-struct args {
-    bool is_shell;
+const char* COLORS[] = {
+    "black", "red", "green", "yellow", "blue", "magenta", "cyan" 
 };
+
+struct args {
+    char* color;
+    int   is_shell,
+          is_bold,
+          is_bg;
+};
+
+void 
+help(const char* program) 
+{
+    printf("\nUsage: %s [--shell|-s] [--bold|-b] [color]                        \n"
+           "       Get ansii color codes                                        \n"
+           "                                                                    \n"
+           "       --shell, -s:        Print shell escape codes                 \n"
+           "       --bold, -b:         If color is provided, show bold color    \n"
+           "                           instead of the regular                   \n"
+           "       --background, -bg:  If color is provided, return background  \n"
+           "                           instead of foreground color              \n"
+           "                                                                    \n"
+           "       color:           Optional color name: black, red, green,     \n"
+           "                        yellow, blue, magenta, cyan               \n\n"
+          , program);
+
+    exit(EXIT_FAILURE);
+}
 
 struct args 
 argparse(char** argv) 
 {
-    struct args out;
+    struct args out = {0};
 
     for (char** p = argv; *p != NULL; ++p) {
         char* arg = *p;
 
-        if (IS(arg, "--shell") || IS(arg, "-s"))
-            out.is_shell = true;
+        if (IS(arg, "--help") || IS(arg, "-h"))
+            help(argv[0]);
+        else if (IS(arg, "--shell") || IS(arg, "-s"))
+            out.is_shell = 1;
+        else if (IS(arg, "--bold") || IS(arg, "-b"))
+            out.is_bold = 1;
+        else if (IS(arg, "--background") || IS(arg, "-bg"))
+            out.is_bg = 1;
+        else
+            out.color = arg;
     }
 
     return out;
 }
 
 void 
-print_escaped(char *s, bool is_shell)
+print_escaped(char* s, int is_shell)
 {
     for (; *s != '\0'; ++s) {
         char c = *s;
@@ -65,7 +99,7 @@ print_escaped(char *s, bool is_shell)
 }
 
 void 
-print_color(bool is_shell, char* buf) 
+print_color(int is_shell, char* buf) 
 {
     putchar(' ');
     printf("%s", buf);
@@ -74,38 +108,56 @@ print_color(bool is_shell, char* buf)
     putchar(' ');
 }
 
-void
-print_colors(struct args* a) 
+int
+main(int argc, char** argv) 
 {
-    char prefix = a->is_shell ? '\e'
-                              : '\x1B';
+    struct args a = argparse(argv);    
+    char prefix = a.is_shell ? '\e'
+                             : '\x1B';
 
+    if (a.color != NULL) {
+        for (int i = 0; i < NCOLORS; i++) {
+            const char* color = COLORS[i];
+            
+            if (!IS(a.color, color))
+                continue;
+
+            char buf[10];
+
+            if (a.is_bg)
+                ANSII_BG(prefix, a.is_bold, i, buf);
+            else
+                ANSII_FG(prefix, a.is_bold, i, buf);
+
+            printf("%s", buf);
+            print_escaped(buf, a.is_shell);
+            printf(RESET);
+
+            putchar('\n');
+            return 0;   
+        }
+    }
+
+    printf("\n");
     for (int color = 0; color < NCOLORS; color++) {
         char buf[10];
 
         ANSII_FG(prefix, REGULAR, color, buf);
-        print_color(a->is_shell, buf);
+        print_color(a.is_shell, buf);
 
         ANSII_FG(prefix, BOLD, color, buf);
-        print_color(a->is_shell, buf);
+        print_color(a.is_shell, buf);
 
         ANSII_BG(prefix, REGULAR, color, buf);
-        print_color(a->is_shell, buf);
+        print_color(a.is_shell, buf);
 
         ANSII_BG(prefix, BOLD, color, buf);
-        print_color(a->is_shell, buf);
+        print_color(a.is_shell, buf);
 
         putchar('\n');
     }
 
     printf("\n Reset: ");
-    print_escaped(RESET, a->is_shell);
-    putchar('\n');
-}
-
-int
-main(int argc, char** argv) 
-{
-    struct args a = argparse(argv);
-    print_colors(&a);
+    print_escaped(RESET, a.is_shell);
+    printf("\n\n");
 }
