@@ -4,6 +4,7 @@
  * lets try to implement a dumb brute forcing alghorithm for sha256, we'll search for collisions
  */
 
+#include <stdatomic.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,10 +14,12 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <pthread.h>
 
 #define CANDIDATE_BUFSIZE       4096
 #define CANDIDATE_FIRST_CHAR    32   // space
 #define CANDIDATE_LAST_CHAR     126  // ~
+#define NTHREADS                16
 
 #define SHA256_DIGEST_SIZE  32  // SHA-256 produces 32 raw bytes (256 bits)
 #define SHA256_CHAR_SIZE    64
@@ -25,6 +28,18 @@ typedef struct {
     size_t len;
     char   buf[CANDIDATE_BUFSIZE];
 } candidate_t;
+
+typedef struct {
+    char* target;
+    bool  generate;
+} args_t;
+
+typedef struct {
+    char* target;
+    int   nthread;
+} thread_args_t;
+
+atomic_int found = 0;
 
 #define DBL_INT_ADD(a,b,c) if (a > 0xffffffff - (c)) ++b; a += c;
 #define ROTLEFT(a,b) (((a) << (b)) | ((a) >> (32-(b))))
@@ -166,7 +181,7 @@ void SHA256Final(SHA256_CTX *ctx, unsigned char hash[])
 
 void SHA256(char* data, size_t len, char* dest) {
 	SHA256_CTX ctx;
-	unsigned char hash[32];
+	unsigned char hash[SHA256_DIGEST_SIZE];
 	strcpy(dest, "");
 
 	SHA256Init(&ctx);
@@ -175,13 +190,13 @@ void SHA256(char* data, size_t len, char* dest) {
 
 	char s[3];
 
-	for (int i = 0; i < 32; i++) {
+	for (int i = 0; i < SHA256_DIGEST_SIZE; i++) {
 		sprintf(s, "%02x", hash[i]);
 		strcat(dest, s);
 	}
 }
 
-void next_candidate(candidate_t* c) 
+void next_candidate(candidate_t* c, int step) 
 {
     if (c->len == 0) {
         c->buf[0] = CANDIDATE_FIRST_CHAR;
@@ -190,51 +205,130 @@ void next_candidate(candidate_t* c)
         return;
     }
 
-    size_t i = c->len - 1;
+    size_t i = c->len;
+    int carry = step;
 
-    while (1) {
-        if (c->buf[i] < CANDIDATE_LAST_CHAR) {
-            c->buf[i]++;
-            return;
+    while (carry > 0) {
+        if (i == 0) {
+            memmove(c->buf + 1, c->buf, c->len + 1);
+            c->buf[0] = CANDIDATE_FIRST_CHAR;
+            c->len++;
+            i = 1;
+            continue;
         }
 
-        c->buf[i] = CANDIDATE_FIRST_CHAR;
-
-        if (i == 0)
-            break;
-
         i--;
-    }
+        int range = CANDIDATE_LAST_CHAR - CANDIDATE_FIRST_CHAR + 1;
+        int cur = c->buf[i] - CANDIDATE_FIRST_CHAR;
+        int sum = cur + carry;
 
-    memmove(c->buf + 1, c->buf, c->len + 1);
-    c->buf[0] = CANDIDATE_FIRST_CHAR;
-    c->len++;
+        c->buf[i] = CANDIDATE_FIRST_CHAR + (sum % range);
+        carry = sum / range;
+    }
 }
 
-int main(int argc, char** argv)
-{
-    candidate_t cand = {0};
-    const char* target = argv[1]; 
+// NTHREADS = 5
+// step = NTHREADS
+// c c c c c c c c c c c c c 
+// ^         ^
+//   ^         ^
+//     ^         ^
+//       ^         ^
+//         ^         ^
 
-    while (1) {
+int generate(char* input) 
+{
+    char   hash[SHA256_CHAR_SIZE + 1];
+    size_t len = strlen(input);
+
+    SHA256(input, len, hash);
+    printf("%s\n", hash);
+    return 0;
+}
+
+void* th_brute_force(void* arg) 
+{
+    candidate_t    cand = {0};
+    thread_args_t* targs = (thread_args_t*)arg;
+    
+    char* target = targs->target;
+
+    cand.buf[0] = CANDIDATE_FIRST_CHAR + (targs->nthread - 1);
+    cand.buf[1] = '\0';
+    cand.len = 1;
+
+    while (!found) {
         char hash[SHA256_CHAR_SIZE + 1];
         SHA256(cand.buf, cand.len, hash);
 
-        printf("%s -> %s\n", cand.buf, hash);
+        if (memcmp(target, hash, SHA256_CHAR_SIZE) == 0) {
+            printf("\nThread: %i\n", targs->nthread);
+            printf("-== Found: %s ==-\n", cand.buf);
 
-        if (strcmp(target, (char*)hash) == 0) {
-            printf("\n== Found: %s ==\n", cand.buf);
             printf("%s == %s\n", target, hash);
-            return 0;
+            found = 1;
+            return NULL;
         } 
 
-        next_candidate(&cand);
+        next_candidate(&cand, NTHREADS);
 
         if (cand.len >= CANDIDATE_BUFSIZE) {
             printf("End reached!\n");
             break;
         }
     }
+    
+    return NULL;
+}
 
-    printf("\n");
+int brute_force(char* target) 
+{
+    pthread_t threads[NTHREADS];
+    thread_args_t targs[NTHREADS];
+
+    for (int i = 0; i < NTHREADS; i++) {
+        targs[i] = (thread_args_t){target, i + 1};
+        pthread_create(&threads[i], NULL, th_brute_force, &targs[i]);
+        printf("Thread %i started\n", i + 1);
+    }
+
+    for (int i = 0; i < NTHREADS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    return 0;
+}
+
+int main(int argc, char** argv)
+{
+    args_t args = {0};
+
+    if (argc < 2) {
+        printf("Usage: %s [-g] <input> \n"
+               "       Generate sha256 hash if -g provided or brute force target hash\n", argv[0]);
+        return 1;
+    }
+
+    for (int i = 1; i < argc; ++i) {
+        char* arg = argv[i];
+
+        if (arg[0] == '-' && arg[1] == '-') {
+            if (argv[i + 1] != NULL)
+                args.target = argv[i + 1];
+
+            break;
+        }
+
+        if (arg[0] == '-') {
+            if (arg[1] == 'g')
+                args.generate = true;
+        } else {
+            args.target = arg;
+        }
+    }
+
+    if (args.generate)
+        return generate(args.target);
+    else
+        return brute_force(args.target);
 }
