@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #define BOLD 1
 #define REGULAR 0
@@ -128,10 +129,14 @@ main(int argc, char** argv)
                 ANSII_BG(prefix, a.is_bold, i, buf);
             else
                 ANSII_FG(prefix, a.is_bold, i, buf);
-
-            printf("%s", buf);
-            print_escaped(buf, a.is_shell);
-            printf(RESET);
+            
+            if (!isatty(STDOUT_FILENO)) {
+                print_escaped(buf, a.is_shell);
+            } else {
+                printf("%s", buf);
+                print_escaped(buf, a.is_shell);
+                printf(RESET);            
+            }
 
             putchar('\n');
             return 0;   
