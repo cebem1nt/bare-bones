@@ -310,6 +310,33 @@ find_cached(packages_t* queries, bool is_reversed)
     free(namelist);
 }
 
+size_t
+remove_packages(packages_t* pkgs, int keep) 
+{
+    size_t n_deleted = 0,
+           to_delete = pkgs->len - keep;
+
+    for (int j = 0; j < pkgs->len; j++) {
+        char* pkg = pkgs->arr[j];
+        char  sig[MAXNAMLEN + 6];
+
+        snprintf(sig, sizeof(sig), "%s.sig", pkg);
+
+        if (n_deleted >= to_delete)
+            break;
+
+        remove(sig); // If it does not exist, do nothing
+        
+        if (remove(pkg) == -1) 
+            perror_exit("remove");
+
+        free(pkg);
+        n_deleted++;
+    }
+
+    return n_deleted;
+}
+
 void 
 remove_cached(packages_t* queries, int keep) 
 {
@@ -365,24 +392,7 @@ remove_cached(packages_t* queries, int keep)
             continue; // Skip this bucket
         }
 
-        size_t n_deleted = 0,
-               to_delete = cached.len - keep;
-
-        for (int j = 0; j < cached.len; j++) {
-            char* pkg = cached.arr[j];
-            char  sig[MAXNAMLEN + 6];
-
-            snprintf(sig, sizeof(sig), "%s.sig", pkg);
-
-            if (n_deleted >= to_delete)
-                break;
-
-            if (remove(pkg) == -1) perror_exit("remove");
-            remove(sig); // If it does not exist, do nothing
-            n_deleted++;
-        }
-
-        printf("%lu items deleted\n", n_deleted);
+        printf("%lu items deleted\n", remove_packages(&cached, keep));
     }
 
     free(namelist);
@@ -391,18 +401,64 @@ remove_cached(packages_t* queries, int keep)
 void 
 remove_cached_all(size_t keep) 
 {
+    struct dirent** namelist;
+    struct hmap     found;
+    int             n;
+
+    HM_INIT(found, HM_DEFAULT_CAP);
+
+    n = scandir(CACHE_DIR, &namelist, selectpkgs, alphasort);
     
+    for (int i = 0; i < n; i++) {
+        char* pkg = namelist[i]->d_name;
+        size_t pkg_base = get_package_base(pkg);
+ 
+        char* key = strdup(pkg);
+        key[pkg_base] = '\0';
+
+        // Matching one
+        struct hm_bucket* stored = hm_get(&found, key);
+        
+        if (stored != NULL) {
+            DA_APPEND(stored->val, strdup(pkg));
+            continue;
+        }
+        
+        // First match, create a new one
+        packages_t new;
+        DA_INIT(new, DA_DEFAULT_CAP);
+        DA_APPEND(new, strdup(pkg));
+        hm_set(&found, key, new);
+
+        free(key);
+        free(namelist[i]);
+    }
+
+    size_t deleted = 0;
+    chdir(CACHE_DIR);
+
+    for (size_t i = 0; i < found.cap; i++) {
+        if (found.arr[i] == NULL)
+            continue;
+
+        packages_t pkgs = found.arr[i]->val;
+        deleted += remove_packages(&pkgs, keep);
+
+        free(pkgs.arr);
+    }
+
+    printf("%lu items were deleted\n", deleted);
 }
 
 void 
 help(const char* program) 
 {
-    printf("Usage: %s [-r|--remove] [-k|--keep <NKEEP>] [PACKAGE ...]                          \n"
-           "  -r, --remove    Remove matching entries from the cache instead of printing them. \n"
-           "                  If no packages are provided, clean up the entire cache,          \n"
-           "                  keeping NKEEP versions.                                          \n"
-           "  -k, --keep      Number of versions to keep when cleaning up the cache            \n"
-           "  -R, --reverse   Print cached versions in reverse order when searching.           \n"
+    printf("Usage: %s [-r|--remove] [-k|--keep <NKEEP>] [PACKAGE ...]                              \n"
+           "  -r, --remove    Remove matching entries from the cache instead of printing them.     \n"
+           "                  If no packages are provided, clean up the entire cache,              \n"
+           "                  keeping NKEEP versions.                                              \n"
+           "  -k, --keep      Number of versions to keep when cleaning up the cache, defaults to 3 \n"
+           "  -R, --reverse   Print cached versions in reverse order when searching.               \n"
            ,program);
 
     exit(EXIT_FAILURE);
