@@ -12,6 +12,7 @@
  * 
  */
 
+#include <limits.h>
 #include <stdint.h>
 #include <ctype.h>
 #include <errno.h>
@@ -32,6 +33,7 @@
 #define HM_RESIZE_PERCENT 70
 
 #define HM_INDEX(key, capacity) (djb2(key) % capacity) 
+#define HM_INIT(hm, capacity) DA_INIT(hm, capacity)
 
 #define DA_INIT(da, capacity) do {                              \
     size_t cap = (capacity) ? (capacity)                        \
@@ -52,8 +54,6 @@
     }                                                                  \
     (da).arr[(da).len++] = __VA_ARGS__;                                \
 } while(0) 
-
-#define HM_INIT(hm, capacity) DA_INIT(hm, capacity)
 
 #define error_exit(...)                   \
     do {                                  \
@@ -88,7 +88,7 @@ struct hmap {
     size_t cap, len;
 };
 
-static uint32_t 
+uint32_t 
 djb2(const char* str) 
 {
     uint32_t hash = 5381;
@@ -100,7 +100,8 @@ djb2(const char* str)
     return hash;
 }
 
-struct hm_bucket* hm_new_bucket(const char* key, packages_t value) 
+struct hm_bucket* 
+hm_new_bucket(const char* key, packages_t value) 
 {
     struct hm_bucket* out = malloc(sizeof(struct hm_bucket));
     
@@ -112,7 +113,16 @@ struct hm_bucket* hm_new_bucket(const char* key, packages_t value)
     return out;
 }
 
-void hm_resize(struct hmap* hm)
+void 
+hm_free_bucket(struct hm_bucket* b) 
+{
+    free(b->key);
+    free(b->val.arr);
+    free(b);
+}
+
+void 
+hm_resize(struct hmap* hm)
 {
     struct hm_bucket** new_arr;
     size_t new_cap = hm->cap * 2;
@@ -135,42 +145,42 @@ void hm_resize(struct hmap* hm)
         new_arr[index] = hm->arr[i];
     }
 
-    free(hm->arr);
+    free(hm->arr); // Free the old array, dont free buckets
     hm->arr = new_arr;
     hm->cap = new_cap;
 }
 
-void hm_set(struct hmap* hm, const char* key, packages_t value) 
+struct hm_bucket*
+hm_set(struct hmap* hm, const char* key, packages_t value) 
 {
-    struct hm_bucket* new_bucket;
     struct hm_bucket* itr;
+    size_t index;
 
     int cap_percent = (hm->len * 100) / hm->cap;
 
     if (cap_percent >= HM_RESIZE_PERCENT)
         hm_resize(hm);
 
-    new_bucket = hm_new_bucket(key, value);
-    size_t index = HM_INDEX(key, hm->cap);
-
+    index = HM_INDEX(key, hm->cap);
     itr = hm->arr[index];
 
     while (itr != NULL) {
-        if (strcmp(itr->key, new_bucket->key) == 0) {
-            itr->val = new_bucket->val;
-            free(new_bucket);
-            return;
+        if (IS(itr->key, key)) {
+            itr->val = value;
+            return itr;
         }
 
         index = (index + 1) % hm->cap;
         itr = hm->arr[index];
     }
 
-    hm->arr[index] = new_bucket;
+    hm->arr[index] = hm_new_bucket(key, value);
     hm->len++;
+    return hm->arr[index];
 }
 
-struct hm_bucket* hm_get(struct hmap* hm, const char* key) 
+struct hm_bucket* 
+hm_get(struct hmap* hm, const char* key) 
 {
     size_t index = HM_INDEX(key, hm->cap);
     struct hm_bucket* itr = hm->arr[index];
@@ -186,20 +196,35 @@ struct hm_bucket* hm_get(struct hmap* hm, const char* key)
     return NULL;
 }
 
+struct hm_bucket* 
+hm_getdef(struct hmap* hm, const char* key) 
+{
+    struct hm_bucket* prev = hm_get(hm, key);
 
-static inline int 
-parse_int(const char* in)
+    if (!prev) {
+        packages_t empty;
+        DA_INIT(empty, DA_DEFAULT_CAP);
+        return hm_set(hm, key, empty);
+    }
+
+    return prev;
+}
+
+int 
+strtoi(const char* in)
 {
     errno = 0;
     char* end;
-    int out = strtol(in, &end, 10);
+    long out = strtol(in, &end, 10);
 
     if (errno != 0)
         perror_exit("Parsing error");
-    if (end == in)
+    if (end == in || *end != '\0')
         error_exit("Parsing error: Expected a valid number\n");
+    if (out < INT_MIN || out > INT_MAX)
+        error_exit("Parsing error: Out of int range\n");
 
-    return out;
+    return (int)out;
 }
 
 static inline bool 
@@ -238,7 +263,7 @@ is_package(const char* pkg)
 static int 
 selectpkgs(const struct dirent * d) 
 {
-    if (is_signature(d->d_name) || d->d_type != DT_REG)
+    if (is_signature(d->d_name) || !is_package(d->d_name))
         return 0;
     return 1;
 }
@@ -249,21 +274,13 @@ is_matching_pkg(char* pkg, const char* query, size_t query_len)
     if (!startswith(pkg, query, query_len))
         return false;
 
-    char* ptr = pkg;
-    ptr += query_len;
-
-    if (*ptr != '-')
+    if (pkg[query_len] != '-')
         return false;
 
-    ptr++;
-    
-    if (!isdigit(*ptr))
-        return false;
-
-    return true;
+    return isdigit(pkg[query_len + 1]);
 }
 
-size_t 
+char* 
 get_package_base(char* pkg) 
 {
     size_t i = 0;
@@ -276,7 +293,9 @@ get_package_base(char* pkg)
             break;
     }
 
-    return i;
+    char* key = strdup(pkg);
+    key[i] = '\0';
+    return key;
 }
 
 void 
@@ -285,7 +304,8 @@ find_cached(packages_t* queries, bool is_reversed)
     struct dirent** namelist;
     int             n;
 
-    n = scandir(CACHE_DIR, &namelist, selectpkgs, alphasort);
+    if ((n = scandir(CACHE_DIR, &namelist, selectpkgs, alphasort)) == -1)
+        perror_exit("scandir");
 
     for (int i = is_reversed ? n - 1  : 0;
                  is_reversed ? i >= 0 : i < n;
@@ -304,21 +324,23 @@ find_cached(packages_t* queries, bool is_reversed)
                 printf(CACHE_DIR"/%s\n", pkg);
         }
 
-        free(namelist[n]);
+        free(namelist[i]);
     }
 
     free(namelist);
 }
 
-size_t
-remove_packages(packages_t* pkgs, int keep) 
+static size_t 
+_remove_packages(struct hm_bucket* b, int keep) 
 {
+    packages_t pkgs = b->val;
+ 
     size_t n_deleted = 0,
-           to_delete = pkgs->len - keep;
+           to_delete = pkgs.len - keep;
 
-    for (int j = 0; j < pkgs->len; j++) {
-        char* pkg = pkgs->arr[j];
-        char  sig[MAXNAMLEN + 6];
+    for (int j = 0; j < pkgs.len; j++) {
+        char* pkg = pkgs.arr[j];
+        char  sig[MAXNAMLEN];
 
         snprintf(sig, sizeof(sig), "%s.sig", pkg);
 
@@ -330,10 +352,11 @@ remove_packages(packages_t* pkgs, int keep)
         if (remove(pkg) == -1) 
             perror_exit("remove");
 
-        free(pkg);
         n_deleted++;
+        free(pkg);
     }
 
+    hm_free_bucket(b);
     return n_deleted;
 }
 
@@ -346,7 +369,8 @@ remove_cached(packages_t* queries, int keep)
 
     HM_INIT(found, HM_DEFAULT_CAP);
 
-    n = scandir(CACHE_DIR, &namelist, selectpkgs, alphasort);
+    if ((n = scandir(CACHE_DIR, &namelist, selectpkgs, alphasort)) == -1)
+        perror_exit("scandir");
     
     for (int i = 0; i < n; i++) {
         char* pkg = namelist[i]->d_name;
@@ -362,18 +386,8 @@ remove_cached(packages_t* queries, int keep)
                 continue;
             
             // Matching one
-            struct hm_bucket* stored = hm_get(&found, query);
-            
-            if (stored != NULL) {
-                DA_APPEND(stored->val, strdup(pkg));
-                continue;
-            }
-            
-            // First match, create a new one
-            packages_t new;
-            DA_INIT(new, DA_DEFAULT_CAP);
-            DA_APPEND(new, strdup(pkg));
-            hm_set(&found, query, new);
+            struct hm_bucket* stored = hm_getdef(&found, query);
+            DA_APPEND(stored->val, strdup(pkg));
         }
 
         free(namelist[i]);
@@ -385,14 +399,15 @@ remove_cached(packages_t* queries, int keep)
         if (!found.arr[i])
             continue;
 
-        packages_t cached = found.arr[i]->val;
+        struct hm_bucket* cached = found.arr[i];
 
-        if (cached.len <= keep) {
+        if (cached->val.len <= keep) {
             printf("0 items deleted\n");
-            continue; // Skip this bucket
+            hm_free_bucket(cached); // Skip this bucket, but free
+            continue;
         }
 
-        printf("%lu items deleted\n", remove_packages(&cached, keep));
+        printf("%lu items deleted\n", _remove_packages(cached, keep));
     }
 
     free(namelist);
@@ -407,30 +422,17 @@ remove_cached_all(size_t keep)
 
     HM_INIT(found, HM_DEFAULT_CAP);
 
-    n = scandir(CACHE_DIR, &namelist, selectpkgs, alphasort);
+    if ((n = scandir(CACHE_DIR, &namelist, selectpkgs, alphasort)) == -1)
+        perror_exit("scandir");
     
     for (int i = 0; i < n; i++) {
         char* pkg = namelist[i]->d_name;
-        size_t pkg_base = get_package_base(pkg);
- 
-        char* key = strdup(pkg);
-        key[pkg_base] = '\0';
+        char* key = get_package_base(pkg);
 
-        // Matching one
-        struct hm_bucket* stored = hm_get(&found, key);
-        
-        if (stored != NULL) {
-            DA_APPEND(stored->val, strdup(pkg));
-            continue;
-        }
-        
-        // First match, create a new one
-        packages_t new;
-        DA_INIT(new, DA_DEFAULT_CAP);
-        DA_APPEND(new, strdup(pkg));
-        hm_set(&found, key, new);
+        struct hm_bucket* stored = hm_getdef(&found, key);
+        DA_APPEND(stored->val, strdup(pkg));
 
-        free(key);
+        free(key); // Key will be strdup'd in hm_new_bucket
         free(namelist[i]);
     }
 
@@ -441,10 +443,7 @@ remove_cached_all(size_t keep)
         if (found.arr[i] == NULL)
             continue;
 
-        packages_t pkgs = found.arr[i]->val;
-        deleted += remove_packages(&pkgs, keep);
-
-        free(pkgs.arr);
+        deleted += _remove_packages(found.arr[i], keep);
     }
 
     printf("%lu items were deleted\n", deleted);
@@ -482,7 +481,7 @@ argparse(char** argv)
             arg = *(++itr);
 
             if (arg != NULL)
-                out.nkeep = parse_int(arg);
+                out.nkeep = strtoi(arg);
             else
                 error_exit("Parsing error: --keep expects a number\n");
         }
