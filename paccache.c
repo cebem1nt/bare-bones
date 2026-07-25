@@ -76,6 +76,7 @@ typedef struct {
     int        nkeep;
     bool       remove,
                reverse,
+               overview,
                quiet;
 } args_t;
 
@@ -339,6 +340,12 @@ _remove_packages(struct hm_bucket* b, int keep, bool quiet)
     size_t n_deleted = 0,
            to_delete = pkgs.len - keep;
 
+    if (n_deleted >= to_delete)
+        return 0;
+
+    if (!quiet)
+        printf("%s:\n", b->key);
+
     for (int j = 0; j < pkgs.len; j++) {
         char* pkg = pkgs.arr[j];
         char  sig[MAXNAMLEN];
@@ -347,11 +354,11 @@ _remove_packages(struct hm_bucket* b, int keep, bool quiet)
 
         if (n_deleted >= to_delete)
             break;
-
-        remove(sig); // If it does not exist, do nothing
         
         if (remove(pkg) == -1) 
             perror_exit("remove");
+
+        remove(sig); // If it does not exist, do nothing
 
         if (!quiet)
             printf("\t%s\n", pkg);
@@ -372,6 +379,9 @@ remove_cached(packages_t* queries, int keep, bool quiet)
     int             n;
 
     HM_INIT(found, HM_DEFAULT_CAP);
+
+    if (geteuid() != 0)
+        error_exit("Error: root access required\n");
 
     if ((n = scandir(CACHE_DIR, &namelist, selectpkgs, alphasort)) == -1)
         perror_exit("scandir");
@@ -405,9 +415,6 @@ remove_cached(packages_t* queries, int keep, bool quiet)
 
         struct hm_bucket* cached = found.arr[i];
         
-        if (!quiet)
-            printf("%s:\n", cached->key);
-
         if (cached->val.len <= keep) {
             printf("0 items deleted\n");
             hm_free_bucket(cached); // Skip this bucket, but free
@@ -428,6 +435,9 @@ remove_cached_all(size_t keep, bool quiet)
     int             n;
 
     HM_INIT(found, HM_DEFAULT_CAP);
+
+    if (geteuid() != 0)
+        error_exit("Error: root access required\n");
 
     if ((n = scandir(CACHE_DIR, &namelist, selectpkgs, alphasort)) == -1)
         perror_exit("scandir");
@@ -450,25 +460,76 @@ remove_cached_all(size_t keep, bool quiet)
         if (found.arr[i] == NULL)
             continue;
 
-        if (!quiet)
-            printf("%s:\n", found.arr[i]->key);
-
         deleted += _remove_packages(found.arr[i], keep, quiet);
     }
 
-    printf("%lu items were deleted\n", deleted);
+    printf("%lu items deleted\n", deleted);
 }
+
+void 
+overview() 
+{
+    struct dirent** namelist;
+    struct hmap     found;
+    int             n;
+
+    HM_INIT(found, HM_DEFAULT_CAP);
+
+    if ((n = scandir(CACHE_DIR, &namelist, selectpkgs, alphasort)) == -1)
+        perror_exit("scandir");
+    
+    for (int i = 0; i < n; i++) {
+        char* pkg = namelist[i]->d_name;
+        char* key = get_package_base(pkg);
+
+        struct hm_bucket* stored = hm_getdef(&found, key);
+        DA_APPEND(stored->val, strdup(pkg));
+
+        free(key); // Key will be strdup'd in hm_new_bucket
+        free(namelist[i]);
+    }
+
+    size_t total = 0;
+
+    for (size_t i = 0; i < found.cap; i++) {
+        if (found.arr[i] == NULL)
+            continue;
+
+        printf("%s:\n", found.arr[i]->key);
+        packages_t pkgs = found.arr[i]->val;
+
+        for (int j = 0; j < pkgs.len; j++) {
+            char* pkg = pkgs.arr[j];
+
+            printf("\t%s\n", pkg);
+            free(pkg);
+        }
+
+        printf("\n");
+        total += pkgs.len;
+        hm_free_bucket(found.arr[i]);
+    }
+
+    printf("%lu cached packages\n", total);
+}
+
 
 void 
 help(const char* program) 
 {
-    printf("Usage: %s [-r|--remove] [-k|--keep <NKEEP>] [PACKAGE ...]                              \n"
-           "  -r, --remove    Remove matching entries from the cache instead of printing them.     \n"
-           "                  If no packages are provided, clean up the entire cache,              \n"
-           "                  keeping NKEEP versions.                                              \n"
-           "  -k, --keep      Number of versions to keep when cleaning up the cache, defaults to 3 \n"
-           "  -R, --reverse   Print cached versions in reverse order when searching.               \n"
-           "  -q, --quiet     Do not print each deleted file to stdout, just summary               \n"
+    printf("Usage: %s [-r|--remove] [-k|--keep <NKEEP>] [PACKAGE ...]                                 \n"
+           "                                                                                          \n"
+           "  -r, --remove      Remove matching entries from the cache instead of printing them.      \n"
+           "                    If no packages are provided, clean up the entire cache,               \n"
+           "                    keeping NKEEP versions.                                               \n"
+           "                                                                                          \n"
+           "  -k, --keep        Number of versions to keep when cleaning up the cache, defaults to 3  \n"
+           "  -q, --quiet       Do not print each deleted file to stdout, just summary                \n"
+           "                                                                                          \n"
+           "  -R, --reverse     Print cached versions in reverse order when searching.                \n"
+           "  -O, --overview    Scan /var/cache/pacman/pkg/ and print cached versions for each package\n"
+           "                                                                                          \n"
+           "  -h, --help        Show this message and exit                                            \n"
            ,program);
 
     exit(EXIT_FAILURE);
@@ -499,10 +560,14 @@ argparse(char** argv)
         }
         else if (IS(arg, "-r") || IS(arg, "--remove"))
             out.remove = true;
-        else if (IS(arg, "-R") || IS(arg, "--reverse"))
-            out.reverse = true;
         else if (IS(arg, "-q") || IS(arg, "--quiet"))
             out.quiet = true;
+        else if (IS(arg, "-R") || IS(arg, "--reverse"))
+            out.reverse = true;
+        else if (IS(arg, "-O") || IS(arg, "--overview"))
+            out.overview = true;
+        else if (IS(arg, "-h") || IS(arg, "--help"))
+            help(argv[0]);
         else
             DA_APPEND(out.pkgs, arg);
     }
@@ -514,11 +579,13 @@ int
 main(int argc, char** argv)
 {
     args_t args = argparse(argv);
-    
+
     if (args.remove && args.pkgs.len == 0)
         remove_cached_all(args.nkeep, args.quiet);
     else if (args.remove)
         remove_cached(&args.pkgs, args.nkeep, args.quiet);
+    else if (args.overview)
+        overview();
     else if (args.pkgs.len > 0)
         find_cached(&args.pkgs, args.reverse);
     else
