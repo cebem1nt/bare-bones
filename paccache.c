@@ -74,8 +74,9 @@ typedef struct {
 typedef struct {
     packages_t pkgs;
     int        nkeep;
-    bool       do_remove,
-               reverse;
+    bool       remove,
+               reverse,
+               quiet;
 } args_t;
 
 struct hm_bucket {
@@ -331,7 +332,7 @@ find_cached(packages_t* queries, bool is_reversed)
 }
 
 static size_t 
-_remove_packages(struct hm_bucket* b, int keep) 
+_remove_packages(struct hm_bucket* b, int keep, bool quiet) 
 {
     packages_t pkgs = b->val;
  
@@ -352,6 +353,9 @@ _remove_packages(struct hm_bucket* b, int keep)
         if (remove(pkg) == -1) 
             perror_exit("remove");
 
+        if (!quiet)
+            printf("\t%s\n", pkg);
+    
         n_deleted++;
         free(pkg);
     }
@@ -361,7 +365,7 @@ _remove_packages(struct hm_bucket* b, int keep)
 }
 
 void 
-remove_cached(packages_t* queries, int keep) 
+remove_cached(packages_t* queries, int keep, bool quiet) 
 {
     struct dirent** namelist;
     struct hmap     found;
@@ -400,6 +404,9 @@ remove_cached(packages_t* queries, int keep)
             continue;
 
         struct hm_bucket* cached = found.arr[i];
+        
+        if (!quiet)
+            printf("%s:\n", cached->key);
 
         if (cached->val.len <= keep) {
             printf("0 items deleted\n");
@@ -407,14 +414,14 @@ remove_cached(packages_t* queries, int keep)
             continue;
         }
 
-        printf("%lu items deleted\n", _remove_packages(cached, keep));
+        printf("%lu items deleted\n", _remove_packages(cached, keep, quiet));
     }
 
     free(namelist);
 }
 
 void 
-remove_cached_all(size_t keep) 
+remove_cached_all(size_t keep, bool quiet) 
 {
     struct dirent** namelist;
     struct hmap     found;
@@ -443,7 +450,10 @@ remove_cached_all(size_t keep)
         if (found.arr[i] == NULL)
             continue;
 
-        deleted += _remove_packages(found.arr[i], keep);
+        if (!quiet)
+            printf("%s:\n", found.arr[i]->key);
+
+        deleted += _remove_packages(found.arr[i], keep, quiet);
     }
 
     printf("%lu items were deleted\n", deleted);
@@ -458,6 +468,7 @@ help(const char* program)
            "                  keeping NKEEP versions.                                              \n"
            "  -k, --keep      Number of versions to keep when cleaning up the cache, defaults to 3 \n"
            "  -R, --reverse   Print cached versions in reverse order when searching.               \n"
+           "  -q, --quiet     Do not print each deleted file to stdout, just summary               \n"
            ,program);
 
     exit(EXIT_FAILURE);
@@ -468,8 +479,9 @@ argparse(char** argv)
 {
     args_t out = { 
         .nkeep = NKEEP_DEFAULT, 
-        .do_remove = false,
-        .reverse = false
+        .remove = false,
+        .reverse = false,
+        .quiet = false
     };
 
     DA_INIT(out.pkgs, DA_DEFAULT_CAP);
@@ -486,9 +498,11 @@ argparse(char** argv)
                 error_exit("Parsing error: --keep expects a number\n");
         }
         else if (IS(arg, "-r") || IS(arg, "--remove"))
-            out.do_remove = true;
+            out.remove = true;
         else if (IS(arg, "-R") || IS(arg, "--reverse"))
             out.reverse = true;
+        else if (IS(arg, "-q") || IS(arg, "--quiet"))
+            out.quiet = true;
         else
             DA_APPEND(out.pkgs, arg);
     }
@@ -501,12 +515,14 @@ main(int argc, char** argv)
 {
     args_t args = argparse(argv);
     
-    if (args.do_remove && args.pkgs.len == 0)
-        remove_cached_all(args.nkeep);
-    else if (args.do_remove)
-        remove_cached(&args.pkgs, args.nkeep);
-    else
+    if (args.remove && args.pkgs.len == 0)
+        remove_cached_all(args.nkeep, args.quiet);
+    else if (args.remove)
+        remove_cached(&args.pkgs, args.nkeep, args.quiet);
+    else if (args.pkgs.len > 0)
         find_cached(&args.pkgs, args.reverse);
-    
+    else
+        help(argv[0]);
+
     return 0;
 }
