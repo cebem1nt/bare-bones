@@ -6,6 +6,7 @@
  * TODO: general collisions search
  */
 
+#include <stdatomic.h>
 #include <errno.h>
 #include <limits.h>
 #include <stddef.h>
@@ -15,6 +16,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <pthread.h>
+#include <unistd.h>
 
 #define IS(arg, str) strcmp(arg, str) == 0
 
@@ -38,6 +40,8 @@
         exit(EXIT_FAILURE);               \
     } while (0)
 
+typedef unsigned long long bigint_t;
+
 typedef struct {
     size_t len;
     char   buf[CANDIDATE_BUFSIZE];
@@ -53,9 +57,15 @@ typedef struct {
 typedef struct {
     unsigned char* target;
     int nthread, nthreads;
-} thread_args_t;
+} bf_targs_t;
 
-volatile int found = 0;
+typedef struct {
+    int nthread, nthreads;
+    bigint_t nhashes;
+} bm_targs_t;
+
+atomic_int bf_is_found = 0;
+atomic_int bm_is_done = 0;
 
 #define DBL_INT_ADD(a,b,c) if (a > 0xffffffff - (c)) ++b; a += c;
 #define ROTLEFT(a,b) (((a) << (b)) | ((a) >> (32-(b))))
@@ -287,8 +297,8 @@ int generate(char* input)
 
 void* th_brute_force(void* arg) 
 {
-    candidate_t    cand = {0};
-    thread_args_t* targs = (thread_args_t*)arg;
+    candidate_t  cand = {0};
+    bf_targs_t*  targs = (bf_targs_t*)arg;
     
     unsigned char* target = targs->target;
 
@@ -296,7 +306,7 @@ void* th_brute_force(void* arg)
     cand.buf[1] = '\0';
     cand.len = 1;
 
-    while (!found) {
+    while (!atomic_load(&bf_is_found)) {
         unsigned char hash[SHA256_DIGEST_SIZE];
         SHA256(cand.buf, cand.len, hash);
 
@@ -305,7 +315,7 @@ void* th_brute_force(void* arg)
             printf("-== Found: %s ==-\n", cand.buf);
 
             print_bytes_as_hex(hash);
-            found = 1;
+            atomic_store(&bf_is_found, 1);
             return NULL;
         } 
 
@@ -320,10 +330,35 @@ void* th_brute_force(void* arg)
     return NULL;
 }
 
+void* th_benchmark(void* arg) 
+{
+    candidate_t cand = {0};
+    bm_targs_t* targs = (bm_targs_t*)arg;
+    
+    cand.buf[0] = CANDIDATE_FIRST_CHAR + (targs->nthread - 1);
+    cand.buf[1] = '\0';
+    cand.len = 1;
+
+    while (!atomic_load(&bm_is_done)) {
+        unsigned char hash[SHA256_DIGEST_SIZE];
+        SHA256(cand.buf, cand.len, hash);
+
+        next_candidate(&cand, targs->nthreads);
+        targs->nhashes++;
+
+        if (cand.len >= CANDIDATE_BUFSIZE) {
+            printf("End reached! Unbelievable!\n");
+            break;
+        }
+    }
+    
+    return NULL;
+}
+
 int brute_force(char* target, int nthreads) 
 {
     unsigned char target_bytes[SHA256_DIGEST_SIZE];
-    thread_args_t targs[NTHREADS_MAX];
+    bf_targs_t    targs[NTHREADS_MAX];
     pthread_t     threads[NTHREADS_MAX];
 
     if (strlen(target) != SHA256_CHAR_SIZE)
@@ -332,7 +367,7 @@ int brute_force(char* target, int nthreads)
     hex_to_bytes(target, target_bytes);
 
     for (int i = 0; i < nthreads; i++) {
-        targs[i] = (thread_args_t){
+        targs[i] = (bf_targs_t){
             .target = target_bytes, 
             .nthread = i + 1,
             .nthreads = nthreads
@@ -345,6 +380,51 @@ int brute_force(char* target, int nthreads)
         pthread_join(threads[i], NULL);
     }
     
+    return 0;
+}
+
+int benchmark(int nseconds, int nthreads) 
+{
+    bm_targs_t targs[NTHREADS_MAX];
+    pthread_t  threads[NTHREADS_MAX];
+
+    if (nthreads > NTHREADS_MAX)
+        error_exit("No more than %i threads.\n", NTHREADS_MAX);
+
+    for (int i = 0; i < nthreads; i++) {
+        targs[i] = (bm_targs_t){
+            .nthread = i + 1,
+            .nthreads = nthreads,
+            .nhashes = 0
+        };
+
+        pthread_create(&threads[i], NULL, th_benchmark, &targs[i]);
+    }
+
+    sleep(nseconds);
+    atomic_store(&bm_is_done, 1);
+
+    for (int i = 0; i < nthreads; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    printf("%-8s %12s %18s\n\n", "Thread", "Hashes", "Hashes/second");
+    
+    bigint_t total = 0, total_hps = 0;
+
+    for (int i = 0; i < nthreads; i++) {
+        bm_targs_t arg = targs[i];
+        bigint_t hps = arg.nhashes / nseconds;
+        char thread[16];
+
+        snprintf(thread, sizeof(thread), "T%02d", arg.nthread);
+        printf("%-8s %12llu %18llu\n", thread, arg.nhashes, hps);
+        
+        total_hps += hps;
+        total += arg.nhashes;
+    }
+
+    printf("\n%-8s %12llu %18llu\n", "Total:", total, total_hps);
     return 0;
 }
 
@@ -384,8 +464,8 @@ args_t parse_args(int argc, char** argv)
             break;
         } 
         
-        // if (IS(arg, "-b") || IS(arg, "--benchmark"))
-        //     out.benchmark = strtoi(*(++itr));
+        if (IS(arg, "-b") || IS(arg, "--benchmark"))
+            out.benchmark = strtoi(*(++itr));
         
         else if (IS(arg, "-t") || IS(arg, "--threads"))
             out.nthreads = strtoi(*(++itr));
@@ -403,8 +483,8 @@ int main(int argc, char** argv)
 
     if (args.generate)
         return generate(args.target);
-    // else if (args.benchmark)
-    //     return benchmark(args.benchmark, args.nthreads);
+    else if (args.benchmark)
+        return benchmark(args.benchmark, args.nthreads);
     else
         return brute_force(args.target, args.nthreads);
 }
