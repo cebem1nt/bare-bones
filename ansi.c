@@ -56,8 +56,8 @@ help(const char* program)
            "       --background, -bg:  If color is provided, return background  \n"
            "                           instead of foreground color              \n"
            "                                                                    \n"
-           "       color:           Optional color name: black, red, green,     \n"
-           "                        yellow, blue, magenta, cyan               \n\n"
+           "       color:              Optional color name: black, red, green,  \n"
+           "                           yellow, blue, magenta, cyan              \n\n"
           , program);
 
     exit(EXIT_FAILURE);

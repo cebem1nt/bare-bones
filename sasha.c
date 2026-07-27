@@ -6,20 +6,37 @@
  * TODO: general collisions search
  */
 
+#include <errno.h>
+#include <limits.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <pthread.h>
 
+#define IS(arg, str) strcmp(arg, str) == 0
+
 #define CANDIDATE_BUFSIZE       4096
 #define CANDIDATE_FIRST_CHAR    32   // space
 #define CANDIDATE_LAST_CHAR     126  // ~
-#define NTHREADS                16
+#define NTHREADS_MAX            64
 
 #define SHA256_DIGEST_SIZE  32  // SHA-256 produces 32 raw bytes (256 bits)
 #define SHA256_CHAR_SIZE    64
+
+#define perror_exit(msg)                  \
+    do {                                  \
+        perror(msg);                      \
+        exit(EXIT_FAILURE);               \
+    } while(0)
+
+#define error_exit(...)                   \
+    do {                                  \
+        fprintf(stderr, __VA_ARGS__);     \
+        exit(EXIT_FAILURE);               \
+    } while (0)
 
 typedef struct {
     size_t len;
@@ -29,11 +46,13 @@ typedef struct {
 typedef struct {
     char* target;
     bool  generate;
+    int   benchmark,
+          nthreads;
 } args_t;
 
 typedef struct {
     unsigned char* target;
-    int nthread;
+    int nthread, nthreads;
 } thread_args_t;
 
 volatile int found = 0;
@@ -185,6 +204,25 @@ void SHA256(char* data, size_t len, unsigned char* dest)
 	SHA256Final(&ctx, dest);
 }
 
+int strtoi(const char* in)
+{
+    if (in == NULL)
+        error_exit("Parsing error: number expected");
+
+    errno = 0;
+    char* end;
+    long out = strtol(in, &end, 10);
+
+    if (errno != 0)
+        perror_exit("Parsing error");
+    if (end == in || *end != '\0')
+        error_exit("Parsing error: Expected a valid number\n");
+    if (out < INT_MIN || out > INT_MAX)
+        error_exit("Parsing error: Out of int range\n");
+
+    return (int)out;
+}
+
 void hex_to_bytes(const char* hex, unsigned char* out) 
 {
     for (int i = 0; i < SHA256_DIGEST_SIZE; i++)
@@ -200,7 +238,16 @@ void print_bytes_as_hex(unsigned char* bytes)
     printf("\n");
 }
 
-void next_candidate(candidate_t *c, int step)
+// NTHREADS = 5
+// step = NTHREADS
+// c c c c c c c c c c c c c 
+// ^         ^
+//   ^         ^
+//     ^         ^
+//       ^         ^
+//         ^         ^
+
+void next_candidate(candidate_t* c, int step)
 {
     int base = CANDIDATE_LAST_CHAR - CANDIDATE_FIRST_CHAR + 1;
     int carry = step;
@@ -227,15 +274,6 @@ void next_candidate(candidate_t *c, int step)
 
     c->buf[c->len] = '\0';
 }
-
-// NTHREADS = 5
-// step = NTHREADS
-// c c c c c c c c c c c c c 
-// ^         ^
-//   ^         ^
-//     ^         ^
-//       ^         ^
-//         ^         ^
 
 int generate(char* input) 
 {
@@ -271,10 +309,10 @@ void* th_brute_force(void* arg)
             return NULL;
         } 
 
-        next_candidate(&cand, NTHREADS);
+        next_candidate(&cand, targs->nthreads);
 
         if (cand.len >= CANDIDATE_BUFSIZE) {
-            printf("End reached!\n");
+            printf("End reached! Unbelievable!\n");
             break;
         }
     }
@@ -282,62 +320,91 @@ void* th_brute_force(void* arg)
     return NULL;
 }
 
-int brute_force(char* target) 
+int brute_force(char* target, int nthreads) 
 {
-    pthread_t threads[NTHREADS];
-    thread_args_t targs[NTHREADS];
-
-    if (strlen(target) < SHA256_CHAR_SIZE) {
-        fprintf(stderr, "Invalid hash size, expected to be %i, got %zu\n", SHA256_CHAR_SIZE, strlen(target));
-        return 1;
-    }
-
     unsigned char target_bytes[SHA256_DIGEST_SIZE];
+    thread_args_t targs[NTHREADS_MAX];
+    pthread_t     threads[NTHREADS_MAX];
+
+    if (strlen(target) != SHA256_CHAR_SIZE)
+        error_exit("Invalid hash size, expected to be %i, got %zu\n", SHA256_CHAR_SIZE, strlen(target));
+
     hex_to_bytes(target, target_bytes);
 
-    for (int i = 0; i < NTHREADS; i++) {
-        targs[i] = (thread_args_t){target_bytes, i + 1};
+    for (int i = 0; i < nthreads; i++) {
+        targs[i] = (thread_args_t){
+            .target = target_bytes, 
+            .nthread = i + 1,
+            .nthreads = nthreads
+        };
+
         pthread_create(&threads[i], NULL, th_brute_force, &targs[i]);
-        printf("Thread %i started\n", i + 1);
     }
 
-    for (int i = 0; i < NTHREADS; i++) {
+    for (int i = 0; i < nthreads; i++) {
         pthread_join(threads[i], NULL);
     }
     
     return 0;
 }
 
+void help(const char* program) 
+{
+    printf("Usage: %s [-g|--generate] [-b SECONDS|--benchmark SECONDS]              \n"
+            "         [-t [NTHREADS]|--threads [NTHREADS]] TARGET                       \n"
+            "                                                                           \n"
+            " A toy brute forcer for sha256, benchmarking tool.                         \n"
+            "                                                                           \n"
+            " -g, --generate    Just generate sha256 hash for given TARGET              \n"
+            " -b, --benchmark   Benchmark mode, Calculate hashes for given SECONDS,     \n"
+            "                                                                           \n"
+            " -t, --threads     Number of threads to use, no more than 64,              \n"
+            "                   defaults to 16                                          \n"
+            "                                                                           \n"
+            "  TARGET:          Input data or sha256 hash                               \n"
+            ,program);
+        
+    exit(EXIT_FAILURE);
+} 
+
+args_t parse_args(int argc, char** argv) 
+{
+    args_t out = {0};
+    out.nthreads = 16;
+
+	if (argc < 2)
+		help(argv[0]);
+
+    for (char** itr = argv + 1; *itr != NULL; itr++) {
+        char* arg = *itr;
+
+        if (IS(arg, "--")) {
+            if (*(++itr) != NULL) 
+                out.target = *itr;
+            break;
+        } 
+        
+        // if (IS(arg, "-b") || IS(arg, "--benchmark"))
+        //     out.benchmark = strtoi(*(++itr));
+        
+        else if (IS(arg, "-t") || IS(arg, "--threads"))
+            out.nthreads = strtoi(*(++itr));
+
+        else if (IS(arg, "-g") || IS(arg, "--generate"))
+            out.generate = true;
+    }
+
+    return out;
+}
+
 int main(int argc, char** argv)
 {
-    args_t args = {0};
-
-    if (argc < 2) {
-        printf("Usage: %s [-g] <input> \n"
-               "       Generate sha256 hash if -g provided or brute force target hash\n", argv[0]);
-        return 1;
-    }
-
-    for (int i = 1; i < argc; ++i) {
-        char* arg = argv[i];
-
-        if (arg[0] == '-' && arg[1] == '-') {
-            if (argv[i + 1] != NULL)
-                args.target = argv[i + 1];
-
-            break;
-        }
-
-        if (arg[0] == '-') {
-            if (arg[1] == 'g')
-                args.generate = true;
-        } else {
-            args.target = arg;
-        }
-    }
+    args_t args = parse_args(argc, argv);
 
     if (args.generate)
         return generate(args.target);
+    // else if (args.benchmark)
+    //     return benchmark(args.benchmark, args.nthreads);
     else
-        return brute_force(args.target);
+        return brute_force(args.target, args.nthreads);
 }
