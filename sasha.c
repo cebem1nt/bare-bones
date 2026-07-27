@@ -430,14 +430,14 @@ int benchmark(int nseconds, int nthreads)
 
 void help(const char* program) 
 {
-    printf("Usage: %s [-g|--generate] [-b SECONDS|--benchmark SECONDS]              \n"
+    printf("Usage: %s [-g|--generate] [-b SECONDS|--benchmark SECONDS]                  \n"
             "         [-t [NTHREADS]|--threads [NTHREADS]] TARGET                       \n"
             "                                                                           \n"
             " A toy brute forcer for sha256, benchmarking tool.                         \n"
             "                                                                           \n"
             " -g, --generate    Just generate sha256 hash for given TARGET              \n"
             " -b, --benchmark   Benchmark mode, Calculate hashes for given SECONDS,     \n"
-            "                                                                           \n"
+            " -h, --help        Show this message and exit                              \n"
             " -t, --threads     Number of threads to use, no more than 64,              \n"
             "                   defaults to 16                                          \n"
             "                                                                           \n"
@@ -464,14 +464,16 @@ args_t parse_args(int argc, char** argv)
             break;
         } 
         
-        if (IS(arg, "-b") || IS(arg, "--benchmark"))
+        if (IS(arg, "-h") || IS(arg, "--help"))
+            help(argv[0]);
+        else if (IS(arg, "-b") || IS(arg, "--benchmark"))
             out.benchmark = strtoi(*(++itr));
-        
         else if (IS(arg, "-t") || IS(arg, "--threads"))
             out.nthreads = strtoi(*(++itr));
-
         else if (IS(arg, "-g") || IS(arg, "--generate"))
             out.generate = true;
+        else
+            out.target = arg;        
     }
 
     return out;
