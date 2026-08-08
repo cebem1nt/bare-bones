@@ -23,6 +23,7 @@
 #define CANDIDATE_BUFSIZE       4096
 #define CANDIDATE_FIRST_CHAR    32   // space
 #define CANDIDATE_LAST_CHAR     126  // ~
+#define NTHREADS_DEFAULT        16
 #define NTHREADS_MAX            64
 
 #define SHA256_DIGEST_SIZE  32  // SHA-256 produces 32 raw bytes (256 bits)
@@ -450,7 +451,7 @@ void help(const char* program)
 args_t parse_args(int argc, char** argv) 
 {
     args_t out = {0};
-    out.nthreads = 16;
+    out.nthreads = NTHREADS_DEFAULT;
 
 	if (argc < 2)
 		help(argv[0]);
