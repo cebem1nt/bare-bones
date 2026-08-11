@@ -23,7 +23,6 @@ int main(int argc, char** argv)
 
     if ((pid = fork()) == -1) {
         perror("fork");
-        return 1;
     } else if (pid == 0) { // Child 
         const char* program = argv[1];
         argv += 2;
