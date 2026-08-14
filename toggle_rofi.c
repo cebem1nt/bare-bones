@@ -81,7 +81,7 @@ void run_cli(int argc, char** argv)
 void kill_and_run_cli(pid_t pid, int argc, char** argv) 
 {
     if (kill(pid, SIGTERM) == -1)
-        execvp("notify-send", (char *[]){"notify-send", "kiill", strerror(errno), NULL});
+        perror_exit("kill");
     run_cli(argc, argv);
 }
 
@@ -184,13 +184,6 @@ int main(int argc, char** argv)
     if (argc <= 1)
         error_exit("A CLI expected, but nothing given\n");
 
-    setsid();
-
-    char* program = argv[0];
-    char  presolved[PATH_MAX];
-
-    realpath(program, presolved);
-    argv[0] = presolved;
-
+    setpgid(0, 0);
     match_proc(argc, argv);
 }
