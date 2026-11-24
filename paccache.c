@@ -367,6 +367,9 @@ _remove_packages(struct hm_bucket* b, int keep, bool quiet)
         free(pkg);
     }
 
+    if (!quiet)
+        putchar('\n');
+
     hm_free_bucket(b);
     return n_deleted;
 }
@@ -517,19 +520,18 @@ overview()
 void 
 help(const char* program) 
 {
-    printf("Usage: %s [-r|--remove] [-k|--keep <NKEEP>] [PACKAGE ...]                                 \n"
-           "                                                                                          \n"
-           "  -r, --remove      Remove matching entries from the cache instead of printing them.      \n"
-           "                    If no packages are provided, clean up the entire cache,               \n"
-           "                    keeping NKEEP versions.                                               \n"
-           "                                                                                          \n"
-           "  -k, --keep        Number of versions to keep when cleaning up the cache, defaults to 3  \n"
-           "  -q, --quiet       Do not print each deleted file to stdout, just summary                \n"
-           "                                                                                          \n"
-           "  -R, --reverse     Print cached versions in reverse order when searching.                \n"
-           "  -O, --overview    Scan /var/cache/pacman/pkg/ and print cached versions for each package\n"
-           "                                                                                          \n"
-           "  -h, --help        Show this message and exit                                            \n"
+    printf("Usage: %s [PACKAGE ...] [-r|--remove] [-k|--keep <NKEEP>] [-q|--quiet] [-R|--reverse] [-O|--overview ] [-h|--help]\n"
+           "                                                                                                      \n"
+           "  -r, --remove        Remove matching entries from the cache instead of printing them.                \n"
+           "                      If no packages are provided, clean up the entire cache, keeping NKEEP versions. \n"
+           "                                                                                                      \n"
+           "  -k, --keep <NKEEP>  Number of versions to keep when cleaning up the cache, defaults to 3            \n"
+           "  -q, --quiet         Do not print each deleted file to stdout, just summary                          \n"
+           "                                                                                                      \n"
+           "  -R, --reverse       Print cached versions in reverse order when searching.                          \n"
+           "  -O, --overview      Scan /var/cache/pacman/pkg/ and print cached versions for each package          \n"
+           "                                                                                                      \n"
+           "  -h, --help          Show this message and exit                                                      \n"
            ,program);
 
     exit(EXIT_FAILURE);

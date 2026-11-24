@@ -24,7 +24,7 @@
 #define CANDIDATE_FIRST_CHAR    32   // space
 #define CANDIDATE_LAST_CHAR     126  // ~
 #define NTHREADS_DEFAULT        16
-#define NTHREADS_MAX            64
+#define NTHREADS_MAX            8192
 
 #define SHA256_DIGEST_SIZE  32  // SHA-256 produces 32 raw bytes (256 bits)
 #define SHA256_CHAR_SIZE    64
